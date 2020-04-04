@@ -1,0 +1,138 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+# # HW2 Problem 3 Job Scheduling
+
+# In[1]:
+
+
+import pandas as pd
+import numpy as np
+
+df = pd.DataFrame({"Job":[i for i in range(1,16)],
+                  "ProcessingTime":[23,14,7,62,21,17,19,55,16,13,27,31,35,18,9]})
+
+p = df.ProcessingTime.tolist()
+p
+
+
+# In[2]:
+
+
+import os
+import pyomo.environ as pyo
+from pyomo.environ import *
+
+from pyomo.opt import SolverFactory
+
+opt = pyo.SolverFactory('glpk')
+
+model = ConcreteModel()
+
+Jobs = p
+ProcessingTime = df.values[1,:]
+MaxSlots = 100
+
+model.Cmax = Var(within=NonNegativeIntegers, initialize=0)
+model.X = Var(range(4), range(len(Jobs)), range(MaxSlots), within=Binary, initialize=0)
+
+model.obj = Objective(expr = model.Cmax, 
+                      sense=minimize)
+model.constraints = ConstraintList()
+
+# Objective constraint smallest finish time
+for i in model.X_index_0.data():
+    for j in model.X_index_1.data():
+        model.constraints.add(sum([model.X[i,j,t]*(t + p[j]) for t in model.X_index_2.data()]) <= model.Cmax)
+
+# If Xijt selected, the next pj must be 0
+#for i in model.X_index_0.data():
+#    for j in model.X_index_1.data():
+#        for t in model.X_index_2.data():
+#            if t+p[j] <= MaxSlots:
+#                model.constraints.add(sum([model.X[i,j,s] for s in range(t+1, t+p[j])]) <= (1-model.X[i,j,t]) )
+#            else:
+#                model.constraints.add(sum([model.X[i,j,s] for s in range(t+1, MaxSlots)]) <= (1-model.X[i,j,t]) )           
+
+# Once a machine starts a job it can't start another job until it is finished
+# For every machine (include yourself), if a job is selected then the total number of you/other machines and jobs taken during the next t+1 .. t+pj slots must be 0
+for i in model.X_index_0.data():
+    for itick in model.X_index_0.data():
+        for jtick in model.X_index_1.data():
+            for t in model.X_index_2.data():
+                if t+p[j] <= MaxSlots:
+                    model.constraints.add(sum([model.X[itick,j,s] for s in range(t+1, t+p[j]) for j in model.X_index_1.data()]) <= (1 - model.X[i,jtick,t]) )
+                else:
+                    model.constraints.add(sum([model.X[itick,j,s] for s in range(t+1, MaxSlots) for j in model.X_index_1.data()]) <= (1 - model.X[i,jtick,t]) )          
+
+# Total jobs being worked by machine at a time
+for i in model.X_index_0.data():
+    for t in model.X_index_2.data():
+        model.constraints.add(sum([model.X[i,j,t] for j in model.X_index_1.data()]) <= 1 )
+
+# Total machines working on a job at a time
+for j in model.X_index_1.data():
+    for t in model.X_index_2.data():
+        model.constraints.add(sum([model.X[i,j,t] for i in model.X_index_0.data()]) <= 1 )
+        
+
+# If a job starts it must be finished before MaxSlots
+#for i in model.X_index_0.data():
+#    for j in model.X_index_1.data():
+#        for t in model.X_index_2.data():
+#            model.constraints.add(model.X[i,j,t](t + p[j]) <= model.X[i,j,t]*MaxSlots )
+
+# Every job must get done
+for j in model.X_index_1.data():
+    model.constraints.add(sum([model.X[i,j,t] for i in model.X_index_0.data() for t in model.X_index_2.data()]) >= 1)
+#model.constraints.add(sum([model.X[i,j,t] for i in model.X_index_0.data() for t in model.X_index_2.data() for j in model.X_index_1.data()]) >= len(Jobs))
+
+
+# # Solution
+
+# In[ ]:
+
+
+# Create a model instance and optimize
+instance = model.create_instance()
+results = opt.solve(instance, tee=True)
+instance.display()
+
+
+# In[52]:
+
+
+instance.Cmax.get_values()
+
+
+# In[53]:
+
+
+for k,v in instance.X.get_values().items():
+    if v == 1:
+        print(k,v)
+
+
+# In[37]:
+
+
+D = np.zeros((50, 4, 15))
+for k,v in instance.X.get_values().items():
+    if v == 1:
+        D[k[2],k[0],k[1]] = 1
+for t in range(D.shape[0]):
+    if D[t,:,:].sum() > 0:
+        print(t, D[t,:,:])
+
+
+# In[54]:
+
+
+
+
+
+# In[ ]:
+
+
+
+
